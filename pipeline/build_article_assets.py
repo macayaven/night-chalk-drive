@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 import cv2
 import numpy as np
@@ -31,21 +32,26 @@ DEFECTIVE = ""
 NANSEN = ""
 SHACKLETON = ""
 MARS500 = ""
+MARS500_V1_25D = ""
 AUDIO_WAV = ""
 QUADS_PATH = ""
 ERR_SEG1 = ""
 ERR_SEG4 = ""
 
 
-def configure_paths(data_dir=None, site_note_dir=None):
+def configure_paths(data_dir=None, site_note_dir=None, linkedin_out=None):
     """Resolve input media paths and output directories from CLI flags or environment."""
     global ROOT, SITE_NOTE_DIR, OUT_LINKEDIN, OUT_WEB
-    global STORY288, DEFECTIVE, NANSEN, SHACKLETON, MARS500
+    global STORY288, DEFECTIVE, NANSEN, SHACKLETON, MARS500, MARS500_V1_25D
     global AUDIO_WAV, QUADS_PATH, ERR_SEG1, ERR_SEG4
 
     ROOT = str(Path(data_dir or paths.MEDIA_ROOT).expanduser().resolve())
     SITE_NOTE_DIR = str(Path(site_note_dir or paths.DOCS_IMAGES_DIR).expanduser().resolve())
-    OUT_LINKEDIN = os.path.join(ROOT, "output", "linkedin_debug_2x2_15s.mp4")
+    OUT_LINKEDIN = (
+        str(Path(linkedin_out).expanduser().resolve())
+        if linkedin_out
+        else os.path.join(ROOT, "output", "linkedin_debug_2x2_15s.mp4")
+    )
     OUT_WEB = os.path.join(SITE_NOTE_DIR, "debug-2x2.mp4")
 
     STORY288 = os.path.join(ROOT, "work", "story288.mp4")
@@ -53,6 +59,9 @@ def configure_paths(data_dir=None, site_note_dir=None):
     NANSEN = os.path.join(ROOT, "output", "01_nansen_into-the-white-silence_themed-ending.mp4")
     SHACKLETON = os.path.join(ROOT, "output", "02_shackleton_endurance-in-the-dark_themed-ending.mp4")
     MARS500 = os.path.join(ROOT, "output", "03_mars500_520-days-to-another-world_themed-ending.mp4")
+    MARS500_V1_25D = os.path.join(
+        ROOT, "output", "03_mars500_520-days-to-another-world_themed-ending_v1_25d.mp4"
+    )
     AUDIO_WAV = os.path.join(ROOT, "work", "audio288", "trilogy_01_nansen_master.wav")
 
     work_quads = os.path.join(ROOT, "work", "track_quads_full_drive.json")
@@ -210,92 +219,119 @@ def build_debug_video():
             "label": "WIN 1 | SEG 1 BEZEL LOCK",
             "tl_src": (STORY288, 10.0),
             "tr_src": (DEFECTIVE, 10.0),
+            "tr_title": "02 / FAILED 3-DoF MATCH",
+            "tr_sub": "UNCONSTRAINED TEMPLATE DRIFT",
+            "bl_mode": "tracker",
             "bl_src": (STORY288, 10.0),
             "br_src": (NANSEN, 10.5),
+            "br_title": "04 / NIGHT-CHALK TRILOGY",
             "br_tag": "EP 1: NANSEN SILVER-ICE",
+            "br_color": (201, 162, 74),
         },
         {
             "label": "WIN 2 | SEG 4 CLIPPED PAN",
             "tl_src": (STORY288, 202.0),
             "tr_src": (DEFECTIVE, 202.0),
+            "tr_title": "02 / FAILED 3-DoF MATCH",
+            "tr_sub": "UNCONSTRAINED TEMPLATE DRIFT",
+            "bl_mode": "tracker",
             "bl_src": (STORY288, 202.0),
             "br_src": (SHACKLETON, 135.8),
+            "br_title": "04 / NIGHT-CHALK TRILOGY",
             "br_tag": "EP 2: SHACKLETON AMBER NOIR",
+            "br_color": (201, 162, 74),
         },
         {
-            "label": "WIN 3 | MIRROR TO CUBIST AIRLOCK",
+            "label": "WIN 3 | MIRROR TO 6-DoF AIRLOCK",
             "tl_src": (STORY288, 265.0),
             "tr_src": (DEFECTIVE, 265.0),
-            "bl_src": (STORY288, 239.0),
+            "tr_title": "02 / v1 CARTOON PROTOTYPE",
+            "tr_sub": "REAL ELEVATOR MIRROR",
+            "bl_mode": "clip",
+            "bl_src": (
+                MARS500_V1_25D if os.path.isfile(MARS500_V1_25D) else STORY288,
+                233.5 if os.path.isfile(MARS500_V1_25D) else 265.0,
+            ),
+            "bl_title": "03 / v1 2.5D AFFINE PORTAL",
+            "bl_sub": "FLAT SLIDE TEARS WALL PANEL",
+            "bl_color": (201, 162, 74),
             "br_src": (MARS500, 233.5),
+            "br_title": "04 / v2 6-DoF 3D PORTAL",
             "br_tag": "EP 3: MARS500 CUBIST AIRLOCK",
+            "br_color": (95, 185, 143),
         },
     ]
 
-    temp_silent = os.path.join(ROOT, "work", "_tmp_debug_2x2_silent.mp4")
-    enc = subprocess.Popen(
-        [
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        temp_silent = os.path.join(tmp_dir, "_tmp_debug_2x2_silent.mp4")
+        enc = subprocess.Popen(
+            [
+                "ffmpeg", "-y", "-v", "error",
+                "-f", "rawvideo", "-pix_fmt", "bgr24",
+                "-s", f"{GW}x{GH}", "-r", str(FPS), "-i", "-",
+                "-an", "-c:v", "libx264", "-crf", "16", "-preset", "fast",
+                "-pix_fmt", "yuv420p", "-r", str(FPS), temp_silent,
+            ],
+            stdin=subprocess.PIPE,
+        )
+
+        for w in windows:
+            tl_f = read_clip_frames(w["tl_src"][0], w["tl_src"][1], n_seg)
+            tr_f = read_clip_frames(w["tr_src"][0], w["tr_src"][1], n_seg)
+            br_f = read_clip_frames(w["br_src"][0], w["br_src"][1], n_seg)
+
+            if w.get("bl_mode", "tracker") == "clip":
+                bl_clip_f = read_clip_frames(w["bl_src"][0], w["bl_src"][1], n_seg)
+            else:
+                bl_start_f = int(round(w["bl_src"][1] * FPS))
+                bl_even0 = bl_start_f - (bl_start_f % 2)
+                bl_f_raw = read_clip_frames_exact(w["bl_src"][0], bl_even0, n_seg + 2)
+
+            for i in range(n_seg):
+                p_tl = draw_hud_badge(tl_f[i], "01 / RAW POV CAPTURE", w["label"], (154, 149, 140))
+                p_tr = draw_hud_badge(tr_f[i], w["tr_title"], w["tr_sub"], (224, 108, 117))
+                if w.get("bl_mode", "tracker") == "clip":
+                    p_bl = draw_hud_badge(bl_clip_f[i], w["bl_title"], w["bl_sub"], w["bl_color"])
+                else:
+                    cur_f = bl_start_f + i
+                    even_f = cur_f - (cur_f % 2)
+                    local_even_idx = max(0, min(len(bl_f_raw) - 1, even_f - bl_even0))
+                    pose_idx = min(len(quads) - 1, even_f // 2)
+                    bl_ovr, coord_txt = draw_tracker_overlay(bl_f_raw[local_even_idx], pose_idx, quads)
+                    p_bl = draw_hud_badge(bl_ovr, "03 / 8-DoF HUBER + LK TRACK", coord_txt, (95, 185, 143))
+                p_br = draw_hud_badge(br_f[i], w["br_title"], w["br_tag"], w["br_color"])
+
+                canvas = np.full((GH, GW, 3), 14, dtype=np.uint8)
+                canvas[0:QH, 0:QW] = p_tl
+                canvas[0:QH, QW:GW] = p_tr
+                canvas[QH:GH, 0:QW] = p_bl
+                canvas[QH:GH, QW:GW] = p_br
+                cv2.line(canvas, (QW, 0), (QW, GH), (14, 13, 11), 4)
+                cv2.line(canvas, (0, QH), (GW, QH), (14, 13, 11), 4)
+                enc.stdin.write(canvas.tobytes())
+
+        enc.stdin.close()
+        assert enc.wait() == 0, "debug video encode failed"
+
+        os.makedirs(os.path.dirname(OUT_LINKEDIN), exist_ok=True)
+        subprocess.check_call([
             "ffmpeg", "-y", "-v", "error",
-            "-f", "rawvideo", "-pix_fmt", "bgr24",
-            "-s", f"{GW}x{GH}", "-r", str(FPS), "-i", "-",
-            "-an", "-c:v", "libx264", "-crf", "16", "-preset", "fast",
-            "-pix_fmt", "yuv420p", "-r", str(FPS), temp_silent,
-        ],
-        stdin=subprocess.PIPE,
-    )
-
-    for w in windows:
-        tl_f = read_clip_frames(w["tl_src"][0], w["tl_src"][1], n_seg)
-        tr_f = read_clip_frames(w["tr_src"][0], w["tr_src"][1], n_seg)
-        br_f = read_clip_frames(w["br_src"][0], w["br_src"][1], n_seg)
-
-        bl_start_f = int(round(w["bl_src"][1] * FPS))
-        bl_even0 = bl_start_f - (bl_start_f % 2)
-        bl_f_raw = read_clip_frames_exact(w["bl_src"][0], bl_even0, n_seg + 2)
-        for i in range(n_seg):
-            cur_f = bl_start_f + i
-            even_f = cur_f - (cur_f % 2)
-            local_even_idx = max(0, min(len(bl_f_raw) - 1, even_f - bl_even0))
-            pose_idx = min(len(quads) - 1, even_f // 2)
-
-            p_tl = draw_hud_badge(tl_f[i], "01 / RAW POV CAPTURE", w["label"], (154, 149, 140))
-            p_tr = draw_hud_badge(tr_f[i], "02 / FAILED 3-DoF MATCH", "UNCONSTRAINED TEMPLATE DRIFT", (224, 108, 117))
-            bl_ovr, coord_txt = draw_tracker_overlay(bl_f_raw[local_even_idx], pose_idx, quads)
-            p_bl = draw_hud_badge(bl_ovr, "03 / 8-DoF HUBER + LK TRACK", coord_txt, (95, 185, 143))
-            p_br = draw_hud_badge(br_f[i], "04 / NIGHT-CHALK TRILOGY", w["br_tag"], (201, 162, 74))
-
-            canvas = np.full((GH, GW, 3), 14, dtype=np.uint8)
-            canvas[0:QH, 0:QW] = p_tl
-            canvas[0:QH, QW:GW] = p_tr
-            canvas[QH:GH, 0:QW] = p_bl
-            canvas[QH:GH, QW:GW] = p_br
-            cv2.line(canvas, (QW, 0), (QW, GH), (14, 13, 11), 4)
-            cv2.line(canvas, (0, QH), (GW, QH), (14, 13, 11), 4)
-            enc.stdin.write(canvas.tobytes())
-
-    enc.stdin.close()
-    assert enc.wait() == 0, "debug video encode failed"
-
-    os.makedirs(os.path.dirname(OUT_LINKEDIN), exist_ok=True)
-    subprocess.check_call([
-        "ffmpeg", "-y", "-v", "error",
-        "-i", temp_silent,
-        "-ss", "34.0", "-t", "15.0", "-i", AUDIO_WAV,
-        "-af", "afade=t=in:st=0:d=0.8,afade=t=out:st=13.5:d=1.5",
-        "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-        "-movflags", "+faststart", "-shortest", OUT_LINKEDIN,
-    ])
-    subprocess.check_call([
-        "ffmpeg", "-y", "-v", "error",
-        "-i", OUT_LINKEDIN,
-        "-c:v", "libx264", "-crf", "23", "-preset", "slow", "-maxrate", "2800k", "-bufsize", "5600k",
-        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-        "-movflags", "+faststart", OUT_WEB,
-    ])
-    os.remove(temp_silent)
-    print(f"Wrote {OUT_LINKEDIN} ({os.path.getsize(OUT_LINKEDIN)} B)")
-    print(f"Wrote {OUT_WEB} ({os.path.getsize(OUT_WEB)} B)")
+            "-i", temp_silent,
+            "-ss", "34.0", "-t", "15.0", "-i", AUDIO_WAV,
+            "-af", "afade=t=in:st=0:d=0.8,afade=t=out:st=13.5:d=1.5",
+            "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart", "-shortest", OUT_LINKEDIN,
+        ])
+        subprocess.check_call([
+            "ffmpeg", "-y", "-v", "error",
+            "-i", OUT_LINKEDIN,
+            "-c:v", "libx264", "-crf", "23", "-preset", "slow", "-maxrate", "2800k", "-bufsize", "5600k",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart", OUT_WEB,
+        ])
+        print(f"Wrote {OUT_LINKEDIN} ({os.path.getsize(OUT_LINKEDIN)} B)")
+        print(f"Wrote {OUT_WEB} ({os.path.getsize(OUT_WEB)} B)")
 
 
 def _crop_dash_focus(bgr_720x960, target_w=680, target_h=360):
@@ -441,15 +477,21 @@ def main():
     parser = argparse.ArgumentParser(description="Build note article media and OpenGraph preview assets.")
     parser.add_argument("--data-dir", default=None, help="Root folder containing work/ and output/ media")
     parser.add_argument("--site-note-dir", default=None, help="Destination directory for website note assets")
+    parser.add_argument("--linkedin-out", default=None, help="Override path for 1080x1440 debug_2x2 MP4")
     parser.add_argument("--only-og", action="store_true", help="Only regenerate og.png")
     parser.add_argument(
         "--only-trilogy-and-og",
         action="store_true",
         help="Regenerate trilogy-palettes.jpg and og.png from episode thumbnails",
     )
+    parser.add_argument(
+        "--only-debug-video",
+        action="store_true",
+        help="Only regenerate the 2x2 debug comparison MP4s",
+    )
     args = parser.parse_args()
 
-    configure_paths(data_dir=args.data_dir, site_note_dir=args.site_note_dir)
+    configure_paths(data_dir=args.data_dir, site_note_dir=args.site_note_dir, linkedin_out=args.linkedin_out)
     os.makedirs(SITE_NOTE_DIR, exist_ok=True)
     if args.only_og:
         build_og_image()
@@ -457,6 +499,9 @@ def main():
     if args.only_trilogy_and_og:
         build_trilogy_palettes()
         build_og_image()
+        return
+    if args.only_debug_video:
+        build_debug_video()
         return
 
     build_debug_video()
