@@ -184,6 +184,33 @@ def draw_tracker_overlay(frame_bgr, pose_idx, quad_list, scale_x=QW / 720.0, sca
     return out, coord_txt
 
 
+def _blur_quad_interior(img_bgr, quad_pts, scale_x=QW / 720.0, scale_y=QH / 960.0):
+    """Blur navigation/UI content inside the dashboard LCD without softening bezel edges."""
+    if quad_pts is None:
+        return img_bgr
+    q = np.asarray(quad_pts, dtype=np.float32).copy()
+    q[:, 0] *= scale_x
+    q[:, 1] *= scale_y
+    centroid = q.mean(axis=0, keepdims=True)
+    inset_q = centroid + 0.92 * (q - centroid)
+    mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [np.round(inset_q).astype(np.int32)], 255)
+    if not mask.any():
+        return img_bgr
+    blurred = cv2.GaussianBlur(img_bgr, (35, 35), 14.0)
+    out = img_bgr.copy()
+    out[mask > 0] = blurred[mask > 0]
+    return out
+
+
+def _privacy_redact_frame(img_bgr):
+    """Apply strong mosaic and Gaussian blur across a personal POV tile."""
+    h, w = img_bgr.shape[:2]
+    mosaic = cv2.resize(img_bgr, (27, 36), interpolation=cv2.INTER_AREA)
+    upscaled = cv2.resize(mosaic, (w, h), interpolation=cv2.INTER_LINEAR)
+    return cv2.GaussianBlur(upscaled, (51, 51), 18.0)
+
+
 def draw_hud_badge(img_bgr, title, subtext="", border_rgb=(95, 185, 143)):
     pil = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
     dr = ImageDraw.Draw(pil, "RGBA")
@@ -218,6 +245,8 @@ def build_debug_video():
         {
             "label": "WIN 1 | SEG 1 BEZEL LOCK",
             "tl_src": (STORY288, 10.0),
+            "tl_title": "01 / RAW POV CAPTURE",
+            "tl_redact": False,
             "tr_src": (DEFECTIVE, 10.0),
             "tr_title": "02 / FAILED 3-DoF MATCH",
             "tr_sub": "UNCONSTRAINED TEMPLATE DRIFT",
@@ -231,6 +260,8 @@ def build_debug_video():
         {
             "label": "WIN 2 | SEG 4 CLIPPED PAN",
             "tl_src": (STORY288, 202.0),
+            "tl_title": "01 / RAW POV CAPTURE",
+            "tl_redact": False,
             "tr_src": (DEFECTIVE, 202.0),
             "tr_title": "02 / FAILED 3-DoF MATCH",
             "tr_sub": "UNCONSTRAINED TEMPLATE DRIFT",
@@ -242,8 +273,10 @@ def build_debug_video():
             "br_color": (201, 162, 74),
         },
         {
-            "label": "WIN 3 | MIRROR TO 6-DoF AIRLOCK",
+            "label": "WIN 3 | FACE & BUILDING REDACTED",
             "tl_src": (STORY288, 265.0),
+            "tl_title": "01 / RAW POV (PRIVACY BLURRED)",
+            "tl_redact": True,
             "tr_src": (DEFECTIVE, 265.0),
             "tr_title": "02 / v1 CARTOON PROTOTYPE",
             "tr_sub": "REAL ELEVATOR MIRROR",
@@ -288,17 +321,24 @@ def build_debug_video():
                 bl_f_raw = read_clip_frames_exact(w["bl_src"][0], bl_even0, n_seg + 2)
 
             for i in range(n_seg):
-                p_tl = draw_hud_badge(tl_f[i], "01 / RAW POV CAPTURE", w["label"], (154, 149, 140))
-                p_tr = draw_hud_badge(tr_f[i], w["tr_title"], w["tr_sub"], (224, 108, 117))
+                tl_frame = tl_f[i]
                 if w.get("bl_mode", "tracker") == "clip":
+                    if w.get("tl_redact"):
+                        tl_frame = _privacy_redact_frame(tl_frame)
                     p_bl = draw_hud_badge(bl_clip_f[i], w["bl_title"], w["bl_sub"], w["bl_color"])
                 else:
                     cur_f = bl_start_f + i
                     even_f = cur_f - (cur_f % 2)
                     local_even_idx = max(0, min(len(bl_f_raw) - 1, even_f - bl_even0))
                     pose_idx = min(len(quads) - 1, even_f // 2)
-                    bl_ovr, coord_txt = draw_tracker_overlay(bl_f_raw[local_even_idx], pose_idx, quads)
+                    q_cur = quads[pose_idx] if 0 <= pose_idx < len(quads) else None
+                    tl_frame = _blur_quad_interior(tl_frame, q_cur)
+                    bl_blurred = _blur_quad_interior(bl_f_raw[local_even_idx], q_cur)
+                    bl_ovr, coord_txt = draw_tracker_overlay(bl_blurred, pose_idx, quads)
                     p_bl = draw_hud_badge(bl_ovr, "03 / 8-DoF HUBER + LK TRACK", coord_txt, (95, 185, 143))
+
+                p_tl = draw_hud_badge(tl_frame, w["tl_title"], w["label"], (154, 149, 140))
+                p_tr = draw_hud_badge(tr_f[i], w["tr_title"], w["tr_sub"], (224, 108, 117))
                 p_br = draw_hud_badge(br_f[i], w["br_title"], w["br_tag"], w["br_color"])
 
                 canvas = np.full((GH, GW, 3), 14, dtype=np.uint8)
