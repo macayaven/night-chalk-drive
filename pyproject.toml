@@ -1,0 +1,19 @@
+[project]
+name = "night-chalk-drive"
+version = "0.2.0"
+description = "12-fps CIE-Lab Night-Chalk rotoscope, 8-DoF planar display tracking, and 6-DoF 3D portal pipeline built from Meta Ray-Ban night-drive footage."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Carlos Crespo Macaya" }]
+dependencies = [
+    "opencv-python-headless>=4.10",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pillow>=10.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

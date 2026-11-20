@@ -1,0 +1,25 @@
+# Large raw footage, music tracks, and intermediate render artifacts
+videos/
+work/
+output/
+music/
+assets/
+docs/extracted-screenshots/
+docs/error-pages/
+docs/drafts/
+
+*.mp4
+*.MOV
+*.mov
+*.wav
+*.mp3
+*.pdf
+*.png~
+*.jpg~
+
+# Python / IDE / macOS
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
