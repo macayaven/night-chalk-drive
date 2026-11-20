@@ -5,7 +5,7 @@ Outputs inside ``--site-note-dir`` (and ``<data-dir>/output`` for LinkedIn):
   1. ``<data-dir>/output/linkedin_debug_2x2_15s.mp4`` (1080x1440, 24fps, 15s)
   2. ``<site-note-dir>/debug-2x2.mp4`` (<8 MB web encode)
   3. ``<site-note-dir>/tracker-comparison.jpg`` (1400x760)
-  4. ``<site-note-dir>/trilogy-palettes.jpg`` (1440x640)
+  4. ``<site-note-dir>/trilogy-palettes.jpg`` (1984x392)
   5. ``<site-note-dir>/og.png`` (1200x627)
 """
 import argparse
@@ -345,21 +345,47 @@ def build_tracker_comparison():
     print(f"Wrote {out_p}")
 
 
-def build_trilogy_palettes():
-    w, h = 480, 640
-    strip = Image.new("RGB", (w * 3, h), (14, 13, 11))
-    cols = [
-        (NANSEN, 12.15, "EP 1: NANSEN (12 FPS)", "ARCTIC SILVER-ICE LITHOGRAPH", (125, 232, 255)),
-        (SHACKLETON, 138.20, "EP 2: SHACKLETON (SLOW/MED)", "AMBER NOIR + HALATION BLOOM", (255, 196, 98)),
-        (MARS500, 236.90, "EP 3: MARS500 (CUBIST AIRLOCK)", "TEAL BLUEPRINT TO SOLAR GOLD", (95, 245, 235)),
+def _resolve_episode_thumbnails():
+    """Return the three 16:9 YouTube episode thumbnail paths in episode order."""
+    specs = [
+        ("thumb-ep01-nansen.jpg", "yt_16x9_01_*.jpg"),
+        ("thumb-ep02-shackleton.jpg", "yt_16x9_02_*.jpg"),
+        ("thumb-ep03-mars500.jpg", "yt_16x9_03_*.jpg"),
     ]
-    for idx, (src, t_sec, head, sub, col) in enumerate(cols):
-        fr = cv2.resize(grab_frame_full(src, t_sec), (w, h), interpolation=cv2.INTER_AREA)
-        fr = draw_hud_badge(fr, head, sub, col)
-        strip.paste(Image.fromarray(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)), (idx * w, 0))
+    repo_images = paths.REPO_ROOT / "docs" / "images"
+    out = []
+    for doc_name, raw_glob in specs:
+        candidate = repo_images / doc_name
+        if candidate.is_file():
+            out.append(str(candidate))
+            continue
+        matches = sorted((Path(ROOT) / "output" / "thumbnails").glob(raw_glob))
+        if not matches:
+            raise FileNotFoundError(f"Missing episode thumbnail: {candidate} or {raw_glob}")
+        out.append(str(matches[0]))
+    return out
+
+
+def build_trilogy_palettes():
+    """Compose the three prepared 16:9 YouTube thumbnails side-by-side."""
+    pad = 16
+    tw, th = 640, 360
+    cw = pad + (tw + pad) * 3
+    ch = th + pad * 2
+    strip = Image.new("RGB", (cw, ch), (14, 13, 11))
+    dr = ImageDraw.Draw(strip)
+
+    for idx, thumb_path in enumerate(_resolve_episode_thumbnails()):
+        with Image.open(thumb_path) as im:
+            card = im.convert("RGB").resize((tw, th), Image.LANCZOS)
+        x = pad + idx * (tw + pad)
+        y = pad
+        strip.paste(card, (x, y))
+        dr.rectangle([x - 1, y - 1, x + tw, y + th], outline=(55, 52, 46), width=1)
+
     out_p = os.path.join(SITE_NOTE_DIR, "trilogy-palettes.jpg")
-    strip.save(out_p, quality=92)
-    print(f"Wrote {out_p}")
+    strip.save(out_p, quality=93)
+    print(f"Wrote {out_p} ({cw}x{ch})")
 
 
 def build_og_image():
@@ -368,7 +394,7 @@ def build_og_image():
     dr = ImageDraw.Draw(img)
 
     for y in range(28, H, 34):
-        for x in range(28, 700, 34):
+        for x in range(28, 760, 34):
             dr.ellipse([x, y, x + 2, y + 2], fill=(35, 33, 29))
 
     dr.ellipse([64, 72, 74, 82], fill=(95, 185, 143))
@@ -398,18 +424,13 @@ def build_og_image():
         dr.text((mx + 16, 500), lbl, font=FONT_XS, fill=(154, 149, 140))
         mx += 200
 
-    previews = [
-        (NANSEN, 12.15),
-        (SHACKLETON, 138.20),
-        (MARS500, 236.90),
-    ]
-    px, pw, ph = 695, 146, 515
-    for idx, (src, ts) in enumerate(previews):
-        fr = grab_frame_full(src, ts)
-        fr_pil = Image.fromarray(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)).resize((pw, ph), Image.LANCZOS)
-        x_pos = px + idx * (pw + 12)
-        img.paste(fr_pil, (x_pos, 56))
-        dr.rectangle([x_pos, 56, x_pos + pw, 56 + ph], outline=(55, 52, 46), width=1)
+    px, pw, ph, gap = 808, 328, 184, 12
+    for idx, thumb_path in enumerate(_resolve_episode_thumbnails()):
+        with Image.open(thumb_path) as im:
+            card = im.convert("RGB").resize((pw, ph), Image.LANCZOS)
+        y_pos = 25 + idx * (ph + gap)
+        img.paste(card, (px, y_pos))
+        dr.rectangle([px - 1, y_pos - 1, px + pw, y_pos + ph], outline=(55, 52, 46), width=1)
 
     out_p = os.path.join(SITE_NOTE_DIR, "og.png")
     img.save(out_p)
@@ -421,11 +442,20 @@ def main():
     parser.add_argument("--data-dir", default=None, help="Root folder containing work/ and output/ media")
     parser.add_argument("--site-note-dir", default=None, help="Destination directory for website note assets")
     parser.add_argument("--only-og", action="store_true", help="Only regenerate og.png")
+    parser.add_argument(
+        "--only-trilogy-and-og",
+        action="store_true",
+        help="Regenerate trilogy-palettes.jpg and og.png from episode thumbnails",
+    )
     args = parser.parse_args()
 
     configure_paths(data_dir=args.data_dir, site_note_dir=args.site_note_dir)
     os.makedirs(SITE_NOTE_DIR, exist_ok=True)
     if args.only_og:
+        build_og_image()
+        return
+    if args.only_trilogy_and_og:
+        build_trilogy_palettes()
         build_og_image()
         return
 
