@@ -2,7 +2,7 @@
 
 These scripts turn a night drive around Sabadell, Spain into three *Take On Me* style animated shorts. I shot the raw clips on Meta Ray-Ban (Gen 2) glasses, keeping the audio and dashboard in view while driving home.
 
-The full engineering note is on my site at [carloscrespomacaya.com/notes/night-chalk-drive/](https://carloscrespomacaya.com/notes/night-chalk-drive/).
+The full engineering note is on my site at [carloscrespomacaya.com/notes/night-chalk-drive/](https://carloscrespomacaya.com/notes/night-chalk-drive/) and published in [Towards AI](https://pub.towardsai.net/night-chalk-drive-a-12-fps-rotoscope-pipeline-from-meta-ray-ban-night-footage-e118341b766e?sk=aef5cbca2251a687690317e1eb2cfe03).
 
 | Ep. 1: Fridtjof Nansen | Ep. 2: Sir Ernest Shackleton | Ep. 3: ESA Mars500 |
 | --- | --- | --- |
@@ -70,6 +70,10 @@ export NIGHT_CHALK_DATA_DIR=/path/to/your/media-bundle
 uv run python -m pipeline.build_trilogy_films all
 uv run python -m pipeline.build_3d_finales all
 ```
+
+## Attribution
+
+I shot the source footage, picked the stories, reviewed every contact sheet and render, and made the architecture and editorial calls. The initial v1 prototype (`media_base.py`, `baseline_v1_template_tracker.py`) came from an early coding-agent pass using Muse Code (`muse-wonder-full-1.0 · xhigh`). Taking the pipeline from that rough prototype to the tested v2 implementation (8-DoF planar tracker, CIE-Lab night shader, 6-DoF 3D portals, unit tests, and repo packaging) was built iteratively with Google Antigravity (powered by Gemini models).
 
 ## License
 
